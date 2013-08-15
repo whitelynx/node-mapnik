@@ -292,23 +292,18 @@ static void layer_to_geojson(mapnik::vector::tile_layer const& layer,
         }
         }
         geometry->Set(String::NewSymbol("type"),js_type);
-        Local<Array> g_arr = Array::New();
-        if (g_type == mapnik::datasource::Polygon)
-        {
-            Local<Array> enclosing_array = Array::New(1);
-            enclosing_array->Set(0,g_arr);
-            geometry->Set(String::NewSymbol("coordinates"),enclosing_array);
-        }
-        else
-        {
-            geometry->Set(String::NewSymbol("coordinates"),g_arr);
-        }
+        Local<Array> multi_array = Array::New();
+        Local<Array> coord_array = Array::New();
         int cmd = -1;
         const int cmd_bits = 3;
         unsigned length = 0;
         double x1 = tile_x_;
         double y1 = tile_y_;
-        unsigned idx = 0;
+        double start_x = 0;
+        double start_y = 0;
+        unsigned parts = 0;
+        std::vector<double> array;
+        bool multi = false;
         for (int k = 0; k < f.geometry_size();)
         {
             if (!length) {
@@ -330,18 +325,15 @@ static void layer_to_geojson(mapnik::vector::tile_layer const& layer,
                     double y2 = y1;
                     if (tr.forward(x2,y2,zc))
                     {
-                        if (g_type == mapnik::datasource::Point)
-                        {
-                            g_arr->Set(0,Number::New(x2));
-                            g_arr->Set(1,Number::New(y2));
+                        if (cmd == mapnik::SEG_MOVETO) {
+                            start_x = x2;
+                            start_y = y2;
+                            if (array.size() > 0)
+                                std::clog << "yes: " << array.size() << "\n";
+                            array.clear();
                         }
-                        else
-                        {
-                            Local<Array> v_arr = Array::New(2);
-                            v_arr->Set(0,Number::New(x2));
-                            v_arr->Set(1,Number::New(y2));
-                            g_arr->Set(idx++,v_arr);
-                        }
+                        array.push_back(x2);
+                        array.push_back(y2);
                     }
                     else
                     {
@@ -350,7 +342,40 @@ static void layer_to_geojson(mapnik::vector::tile_layer const& layer,
                 }
                 else if (cmd == (mapnik::SEG_CLOSE & ((1 << cmd_bits) - 1)))
                 {
-                    if (g_arr->Length() > 0) g_arr->Set(idx++,Local<Array>::Cast(g_arr->Get(0)));
+                    multi = true;
+                    Local<Array> g_arr = Array::New();
+                    unsigned idx = 0;
+                    for (unsigned i=0;i<array.size();)
+                    {
+                        Local<Array> v_arr = Array::New(2);
+                        v_arr->Set(0,Number::New(array[i++]));
+                        v_arr->Set(1,Number::New(array[i++]));
+                        g_arr->Set(idx++,v_arr);
+                    }
+                    Local<Array> v_arr = Array::New(2);
+                    v_arr->Set(0,Number::New(start_x));
+                    v_arr->Set(1,Number::New(start_y));
+                    g_arr->Set(idx++,v_arr);
+                    if (g_type == mapnik::datasource::Polygon)
+                    {
+                        js_type = String::New("MultiPolygon");
+                        if (g_arr->Length() > 3)
+                            coord_array->Set(parts++,g_arr);
+                    }
+                    else if (g_type == mapnik::datasource::LineString)
+                    {
+                        js_type = String::New("MultiLineString");
+                        if (g_arr->Length() > 2)
+                            coord_array->Set(parts++,g_arr);
+                    }
+                    else if (g_type == mapnik::datasource::Point)
+                    {
+                        js_type = String::New("MultiPoint");
+                        coord_array->Set(parts++,g_arr);
+                    }
+
+                    array.clear();
+                    //if (coord_array->Length() > 10) break;
                 }
                 else
                 {
@@ -358,6 +383,16 @@ static void layer_to_geojson(mapnik::vector::tile_layer const& layer,
                 }
             }
         }
+        if (multi)
+        {
+            multi_array->Set(0,coord_array);
+            geometry->Set(String::NewSymbol("coordinates"),multi_array);
+        }
+        else
+        {
+            geometry->Set(String::NewSymbol("coordinates"),coord_array);
+        }
+        geometry->Set(String::NewSymbol("type"),js_type);
         feature_obj->Set(String::NewSymbol("geometry"),geometry);
         Local<Object> att_obj = Object::New();
         for (int m = 0; m < f.tags_size(); m += 2)
