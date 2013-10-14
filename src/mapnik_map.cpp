@@ -17,6 +17,12 @@
 #include <node_version.h>
 
 // mapnik
+#if defined(HAVE_CAIRO)
+#include <mapnik/cairo_renderer.hpp>
+#endif
+#if defined(SVG_RENDERER)
+#include <mapnik/svg/output/svg_renderer.hpp>
+#endif
 #include <mapnik/agg_renderer.hpp>      // for agg_renderer
 #include <mapnik/box2d.hpp>             // for box2d
 #if MAPNIK_VERSION >= 200100
@@ -58,6 +64,7 @@
 #include <iostream>                     // for clog
 #include <ostream>                      // for operator<<, basic_ostream, etc
 #include <sstream>                      // for basic_ostringstream, etc
+#include <fstream>
 
 // boost
 #include <boost/foreach.hpp>            // for auto_any_base, etc
@@ -2203,6 +2210,23 @@ Handle<Value> Map::renderFileSync(const Arguments& args)
                                       String::New(s.str().c_str())));
 #endif
         }
+        else if (format == "svg-mapnik")
+        {
+#if defined(SVG_RENDERER)
+                typedef mapnik::svg_renderer<std::ostream_iterator<char> > svg_ren;
+                std::fstream file(output.c_str(), std::ios::out|std::ios::trunc|std::ios::binary);
+                if (!file) {
+                    return ThrowException(Exception::Error(
+                                              String::New("could not write svg to file")));
+                }
+                std::ostream_iterator<char> output_stream_iterator(file);
+                svg_ren ren(*m->map_, output_stream_iterator, scale_factor);
+                ren.apply(scale_denominator);
+#else
+                return ThrowException(Exception::Error(
+                                          String::New("Mapnik native svg renderer is not built-in")));
+#endif
+        }
         else
         {
             mapnik::image_32 im(m->map_->width(),m->map_->height());
@@ -2213,7 +2237,8 @@ Handle<Value> Map::renderFileSync(const Arguments& args)
             {
                 mapnik::save_to_file<mapnik::image_data_32>(im.data(),output,*palette);
             }
-            else {
+            else
+            {
                 mapnik::save_to_file<mapnik::image_data_32>(im.data(),output);
             }
         }
