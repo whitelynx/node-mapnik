@@ -21,6 +21,7 @@ before_install:
  - source ../.nvm/nvm.sh
  - nvm install $NODE_NVM_VERSION
  - nvm use $NODE_NVM_VERSION
+ - npm config set ca=""
  - node --version
  - npm --version
  - npm install mocha sphericalmercator
