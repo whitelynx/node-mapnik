@@ -23,7 +23,6 @@ before_install:
  - nvm use $NODE_NVM_VERSION
  - node --version
  - npm --version
- - sudo apt-get update -qq
  - npm install mocha sphericalmercator
 
 install:
