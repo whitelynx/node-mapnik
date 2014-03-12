@@ -38,6 +38,9 @@
 // boost
 #include <boost/version.hpp>
 
+// xml2
+#include <libxml/parser.h>
+
 // cairo
 #if defined(HAVE_CAIRO)
 #include <cairo.h>
@@ -179,6 +182,8 @@ extern "C" {
         NODE_MAPNIK_DEFINE_CONSTANT(composite_ops, "invert_rgb", mapnik::invert_rgb)
 
         target->Set(String::NewSymbol("compositeOp"), composite_ops);
+
+        xmlInitParser();
 #endif
     }
 
