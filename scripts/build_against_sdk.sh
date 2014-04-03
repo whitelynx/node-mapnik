@@ -15,7 +15,7 @@ if [[ "${CXX11:-false}" != false ]]; then
         CXX_NAME="clang-3.3"
     fi
 else
-    HASH="423-gf202197-cpp03"
+    HASH="442-gce1ff99-cpp03"
     if [[ $UNAME == 'Linux' ]]; then
         CXX_NAME="gcc-4.6"
     else
@@ -67,7 +67,7 @@ fi
 cd ../
 rm -rf ./lib/binding/
 mkdir -p ./lib/binding/
-npm install --build-from-source
+npm install --build-from-source $1
 # copy lib
 cp $MAPNIK_SDK/lib/libmapnik.* lib/binding/
 # copy plugins
@@ -88,12 +88,6 @@ module.exports.env = {
     'PROJ_LIB': path.join(__dirname, 'share/mapnik/proj')
 };
 " > lib/binding/mapnik_settings.js
-# this should be done when the sdk is packaged
-#if [[ $UNAME == 'Darwin' ]]; then
-    #install_name_tool -id @loader_path/libmapnik.dylib lib/binding/libmapnik.dylib
-    # relativize plugins
-    #for lib in `ls lib/binding/mapnik/input/*input`; do
-    #  install_name_tool -change /usr/local/lib/libmapnik.dylib @loader_path/../../libmapnik.dylib $lib;
-    #done
-#fi
-#rm -rf $BUILD_DIR
+
+# cleanup
+rm -rf $BUILD_DIR

@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.4.2
+
+ - Now initializing and cleaning up global libxml structures (#239)
+ - Fix publishing of mapnik package to npm to include bundled node-pre-gyp.
+ - Binaries updated to use Mapnik v2.3.x at ce1ff99 and mapnik-packaging@49d8c3b.
+
+## 1.4.1
+
+ - Binaries updated to use Mapnik v.2.3.x at 818e87d.
+ - Improved build support for OS X Mavericks by autodetecting if linking against libc++ should be preferred.
+ - `mapnik.register_system_fonts()` now registers opentype fonts as well as truetype fonts on linux (#231)
+
 ## 1.4.0
 
  - First series to default to providing binaries with `npm install` (bundling Mapnik v2.3.x at f202197)
