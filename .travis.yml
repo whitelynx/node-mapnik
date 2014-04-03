@@ -1,5 +1,9 @@
 language: objective-c
 
+compiler:
+ - gcc
+ - clang
+
 env:
   matrix:
    - NODE_NVM_VERSION="0.10"
@@ -21,30 +25,33 @@ before_install:
  - source ../.nvm/nvm.sh
  - nvm install $NODE_NVM_VERSION
  - nvm use $NODE_NVM_VERSION
- - npm config set ca=""
  - node --version
  - npm --version
- - npm install mocha sphericalmercator
+ - npm install mocha sphericalmercator aws-sdk
+ - platform=$(uname -s | sed "y/ABCDEFGHIJKLMNOPQRSTUVWXYZ/abcdefghijklmnopqrstuvwxyz/")
 
 install:
  # test building and packaging binary against Mapnik v2.3.x SDK
  - ./scripts/build_against_sdk.sh
  - rm -rf sdk
  - npm test
- - node-pre-gyp package testpackage --overwrite
+ - node-pre-gyp package testpackage
  - npm test
  - PUBLISH_BINARY=false
- - if test "${COMMIT_MESSAGE#*'[publish binary]'}" != "$COMMIT_MESSAGE"; then echo yes;PUBLISH_BINARY=true; fi;
+ - if [[ ${CXX} == "clang++" ]] && test "${COMMIT_MESSAGE#*'[publish binary]'}" != "$COMMIT_MESSAGE"; then echo yes;PUBLISH_BINARY=true; fi;
  - if [[ $PUBLISH_BINARY == true ]]; then node-pre-gyp publish info; rm -rf {build,lib/binding}; node-pre-gyp install; npm test; fi
 
 before_script:
- - true
+ - if [[ "$platform" == 'linux' ]]; then ./scripts/ubuntu_ppa_tests.sh; fi;
 
 script:
  - true
 
 after_script:
  - true
+
+after_success:
+  - echo 'after success'
 
 notifications:
   irc:
