@@ -28,6 +28,7 @@
 #include <mapnik/geom_util.hpp>
 #include <mapnik/version.hpp>
 #include <mapnik/request.hpp>
+#include <mapnik/graphics.hpp>
 #include <mapnik/feature.hpp>
 #include <mapnik/projection.hpp>
 #include <mapnik/datasource.hpp>
@@ -55,8 +56,14 @@
 #include <vector>                       // for vector
 #include "pbf.hpp"
 
+// fromGeoJSON
+#include "vector_tile_processor.hpp"
+#include "vector_tile_backend_pbf.hpp"
+#include <mapnik/datasource_cache.hpp>
+#include <mapnik/save_map.hpp>
+
 template <typename PathType>
-bool _hit_test(PathType & path, double x, double y, double tol)
+bool _hit_test(PathType & path, double x, double y, double tol, double & distance)
 {
     double x0 = 0;
     double y0 = 0;
@@ -68,7 +75,8 @@ bool _hit_test(PathType & path, double x, double y, double tol)
     {
         unsigned command = path.vertex(&x0, &y0);
         if (command == mapnik::SEG_END) return false;
-        return mapnik::distance(x, y, x0, y0) <= tol;
+        distance = mapnik::distance(x, y, x0, y0);
+        return distance <= tol;
         break;
     }
     case MAPNIK_POLYGON:
@@ -114,7 +122,7 @@ bool _hit_test(PathType & path, double x, double y, double tol)
                 y0 = y1;
                 continue;
             }
-            double distance = mapnik::point_to_segment_distance(x,y,x0,y0,x1,y1);
+            distance = mapnik::point_to_segment_distance(x,y,x0,y0,x1,y1);
             if (distance < tol)
                 return true;
             x0 = x1;
@@ -149,6 +157,7 @@ void VectorTile::Initialize(Handle<Object> target) {
     NODE_SET_PROTOTYPE_METHOD(constructor, "names", names);
     NODE_SET_PROTOTYPE_METHOD(constructor, "toJSON", toJSON);
     NODE_SET_PROTOTYPE_METHOD(constructor, "toGeoJSON", toGeoJSON);
+    NODE_SET_PROTOTYPE_METHOD(constructor, "fromGeoJSON", fromGeoJSON);
 #ifdef PROTOBUF_FULL
     NODE_SET_PROTOTYPE_METHOD(constructor, "toString", toString);
 #endif
@@ -185,17 +194,50 @@ Handle<Value> VectorTile::New(const Arguments& args)
     if (!args.IsConstructCall())
         return ThrowException(String::New("Cannot call constructor as function, you need to use 'new' keyword"));
 
-    if (args.Length() == 3)
+    if (args.Length() >= 3)
     {
         if (!args[0]->IsNumber() ||
             !args[1]->IsNumber() ||
             !args[2]->IsNumber())
+        {
             return ThrowException(Exception::Error(
                                       String::New("required args (z, x, and y) must be a integers")));
+        }
+        unsigned width = 256;
+        unsigned height = 256;
+        Local<Object> options = Object::New();
+        if (args.Length() > 3) {
+            if (!args[3]->IsObject())
+            {
+                return ThrowException(Exception::TypeError(
+                                          String::New("optional fourth argument must be an options object")));
+            }
+            options = args[3]->ToObject();
+            if (options->Has(String::New("width"))) {
+                Local<Value> opt = options->Get(String::New("width"));
+                if (!opt->IsNumber())
+                {
+                    return ThrowException(Exception::TypeError(
+                                              String::New("optional arg 'width' must be a number")));
+                }
+                width = opt->IntegerValue();
+            }
+            if (options->Has(String::New("height"))) {
+                Local<Value> opt = options->Get(String::New("height"));
+                if (!opt->IsNumber())
+                {
+                    return ThrowException(Exception::TypeError(
+                                              String::New("optional arg 'height' must be a number")));
+                }
+                height = opt->IntegerValue();
+            }
+        }
+
         VectorTile* d = new VectorTile(args[0]->IntegerValue(),
                                    args[1]->IntegerValue(),
-                                   args[2]->IntegerValue()
-            );
+                                   args[2]->IntegerValue(),
+                                   width,height);
+
         d->Wrap(args.This());
         return args.This();
     }
@@ -433,30 +475,34 @@ Handle<Value> VectorTile::composite(const Arguments& args)
             if (vt->status_ == LAZY_DONE) // tile is already parsed, we're good
             {
                 mapnik::vector::tile const& tiledata = vt->get_tile();
-                for (int i=0; i < tiledata.layers_size(); ++i)
+                unsigned num_layers = tiledata.layers_size();
+                if (num_layers > 0)
                 {
-                    mapnik::vector::tile_layer const& layer = tiledata.layers(i);
-                    mapnik::layer lyr(layer.name(),merc_srs);
-                    MAPNIK_SHARED_PTR<mapnik::vector::tile_datasource> ds = MAPNIK_MAKE_SHARED<
-                                                    mapnik::vector::tile_datasource>(
-                                                        layer,
-                                                        vt->x_,
-                                                        vt->y_,
-                                                        vt->z_,
-                                                        vt->width()
-                                                        );
-                    ds->set_envelope(m_req.get_buffered_extent());
-                    lyr.set_datasource(ds);
-                    map.MAPNIK_ADD_LAYER(lyr);
+                    for (int i=0; i < tiledata.layers_size(); ++i)
+                    {
+                        mapnik::vector::tile_layer const& layer = tiledata.layers(i);
+                        mapnik::layer lyr(layer.name(),merc_srs);
+                        MAPNIK_SHARED_PTR<mapnik::vector::tile_datasource> ds = MAPNIK_MAKE_SHARED<
+                                                        mapnik::vector::tile_datasource>(
+                                                            layer,
+                                                            vt->x_,
+                                                            vt->y_,
+                                                            vt->z_,
+                                                            vt->width()
+                                                            );
+                        ds->set_envelope(m_req.get_buffered_extent());
+                        lyr.set_datasource(ds);
+                        map.MAPNIK_ADD_LAYER(lyr);
+                    }
+                    renderer_type ren(backend,
+                                      map,
+                                      m_req,
+                                      scale_factor,
+                                      offset_x,
+                                      offset_y,
+                                      tolerance);
+                    ren.apply(scale_denominator);
                 }
-                renderer_type ren(backend,
-                                  map,
-                                  m_req,
-                                  scale_factor,
-                                  offset_x,
-                                  offset_y,
-                                  tolerance);
-                ren.apply(scale_denominator);
             }
             else // tile is not pre-parsed so parse into new object to avoid mutating input
             {
@@ -466,30 +512,34 @@ Handle<Value> VectorTile::composite(const Arguments& args)
                     mapnik::vector::tile tiledata;
                     if (tiledata.ParseFromArray(vt->buffer_.data(), bytes))
                     {
-                        for (int i=0; i < tiledata.layers_size(); ++i)
+                        unsigned num_layers = tiledata.layers_size();
+                        if (num_layers > 0)
                         {
-                            mapnik::vector::tile_layer const& layer = tiledata.layers(i);
-                            mapnik::layer lyr(layer.name(),merc_srs);
-                            MAPNIK_SHARED_PTR<mapnik::vector::tile_datasource> ds = MAPNIK_MAKE_SHARED<
-                                                            mapnik::vector::tile_datasource>(
-                                                                layer,
-                                                                vt->x_,
-                                                                vt->y_,
-                                                                vt->z_,
-                                                                vt->width()
-                                                                );
-                            ds->set_envelope(m_req.get_buffered_extent());
-                            lyr.set_datasource(ds);
-                            map.MAPNIK_ADD_LAYER(lyr);
+                            for (int i=0; i < tiledata.layers_size(); ++i)
+                            {
+                                mapnik::vector::tile_layer const& layer = tiledata.layers(i);
+                                mapnik::layer lyr(layer.name(),merc_srs);
+                                MAPNIK_SHARED_PTR<mapnik::vector::tile_datasource> ds = MAPNIK_MAKE_SHARED<
+                                                                mapnik::vector::tile_datasource>(
+                                                                    layer,
+                                                                    vt->x_,
+                                                                    vt->y_,
+                                                                    vt->z_,
+                                                                    vt->width()
+                                                                    );
+                                ds->set_envelope(m_req.get_buffered_extent());
+                                lyr.set_datasource(ds);
+                                map.MAPNIK_ADD_LAYER(lyr);
+                            }
+                            renderer_type ren(backend,
+                                              map,
+                                              m_req,
+                                              scale_factor,
+                                              offset_x,
+                                              offset_y,
+                                              tolerance);
+                            ren.apply(scale_denominator);
                         }
-                        renderer_type ren(backend,
-                                          map,
-                                          m_req,
-                                          scale_factor,
-                                          offset_x,
-                                          offset_y,
-                                          tolerance);
-                        ren.apply(scale_denominator);
                     }
                     else
                     {
@@ -656,15 +706,23 @@ Handle<Value> VectorTile::query(const Arguments& args)
                         while ((feature = fs->next()))
                         {
                             bool hit = false;
+                            double distance = 0.0;
                             BOOST_FOREACH ( mapnik::geometry_type const& geom, feature->paths() )
                             {
-                               if (_hit_test(geom,x,y,tolerance))
+                               if (_hit_test(geom,x,y,tolerance,distance))
                                {
                                    hit = true;
                                    break;
                                }
                             }
-                            if (hit) arr->Set(idx++,Feature::New(feature));
+                            if (hit)
+                            {
+                                Handle<Value> feat = Feature::New(feature);
+                                Local<Object> feat_obj = feat->ToObject();
+                                feat_obj->Set(String::New("layer"),String::New(layer.name().c_str()));
+                                feat_obj->Set(String::New("distance"),Number::New(distance));
+                                arr->Set(idx++,feat);
+                            }
                         }
                     }
                 }
@@ -689,15 +747,23 @@ Handle<Value> VectorTile::query(const Arguments& args)
                     while ((feature = fs->next()))
                     {
                         bool hit = false;
+                        double distance = 0.0;
                         BOOST_FOREACH ( mapnik::geometry_type const& geom, feature->paths() )
                         {
-                           if (_hit_test(geom,x,y,tolerance))
+                           if (_hit_test(geom,x,y,tolerance,distance))
                            {
                                hit = true;
                                break;
                            }
                         }
-                        if (hit) arr->Set(idx++,Feature::New(feature));
+                        if (hit)
+                        {
+                            Handle<Value> feat = Feature::New(feature);
+                            Local<Object> feat_obj = feat->ToObject();
+                            feat_obj->Set(String::New("layer"),String::New(layer.name().c_str()));
+                            feat_obj->Set(String::New("distance"),Number::New(distance));
+                            arr->Set(idx++,feat);
+                        }
                     }
                 }
             }
@@ -1176,6 +1242,52 @@ void VectorTile::EIO_AfterParse(uv_work_t* req)
     delete closure;
 }
 
+Handle<Value> VectorTile::fromGeoJSON(const Arguments& args)
+{
+    HandleScope scope;
+    VectorTile* d = ObjectWrap::Unwrap<VectorTile>(args.This());
+    if (args.Length() < 1 || !args[0]->IsString())
+        return ThrowException(Exception::Error(
+                                  String::New("first argument must be a GeoJSON string")));
+    if (args.Length() < 2 || !args[1]->IsString())
+        return ThrowException(Exception::Error(
+                                  String::New("second argument must be a layer name (string)")));
+    std::string geojson_string = TOSTR(args[0]);
+    std::string geojson_name = TOSTR(args[1]);
+    try
+    {
+        typedef mapnik::vector::backend_pbf backend_type;
+        typedef mapnik::vector::processor<backend_type> renderer_type;
+        backend_type backend(d->get_tile_nonconst(),16);
+        mapnik::Map map(d->width_,d->height_,"+init=epsg:3857");
+        mapnik::vector::spherical_mercator merc(d->width_);
+        double minx,miny,maxx,maxy;
+        merc.xyz(d->x_,d->y_,d->z_,minx,miny,maxx,maxy);
+        map.zoom_to_box(mapnik::box2d<double>(minx,miny,maxx,maxy));
+        mapnik::request m_req(map.width(),map.height(),map.get_current_extent());
+        m_req.set_buffer_size(8);
+        mapnik::parameters p;
+        // TODO - use mapnik core GeoJSON parser
+        p["type"]="ogr";
+        p["file"]=geojson_string;
+        p["layer_by_index"]="0";
+        mapnik::layer lyr(geojson_name,"+init=epsg:4326");
+        lyr.set_datasource(mapnik::datasource_cache::instance().create(p));
+        map.MAPNIK_ADD_LAYER(lyr);
+        renderer_type ren(backend,
+                          map,
+                          m_req);
+        ren.apply();
+        d->painted(ren.painted());
+        return True();
+    }
+    catch (std::exception const& ex)
+    {
+        return ThrowException(Exception::Error(
+                                  String::New(ex.what())));
+    }
+}
+
 Handle<Value> VectorTile::addData(const Arguments& args)
 {
     HandleScope scope;
@@ -1352,6 +1464,8 @@ struct vector_tile_render_baton_t {
     int z;
     int x;
     int y;
+    unsigned width;
+    unsigned height;
     bool zxy_override;
     bool error;
     int buffer_size;
@@ -1372,6 +1486,8 @@ struct vector_tile_render_baton_t {
         z(0),
         x(0),
         y(0),
+        width(0),
+        height(0),
         zxy_override(false),
         error(false),
         buffer_size(0),
@@ -1471,12 +1587,16 @@ Handle<Value> VectorTile::render(const Arguments& args)
     {
         Image *im = node::ObjectWrap::Unwrap<Image>(im_obj);
         closure->im = im;
+        closure->width = im->get()->width();
+        closure->height = im->get()->height();
         closure->im->_ref();
     }
     else if (CairoSurface::constructor->HasInstance(im_obj))
     {
         CairoSurface *c = node::ObjectWrap::Unwrap<CairoSurface>(im_obj);
         closure->c = c;
+        closure->width = c->width();
+        closure->height = c->height();
         closure->c->_ref();
         if (options->Has(String::New("renderer")))
         {
@@ -1506,6 +1626,8 @@ Handle<Value> VectorTile::render(const Arguments& args)
     {
         Grid *g = node::ObjectWrap::Unwrap<Grid>(im_obj);
         closure->g = g;
+        closure->width = g->get()->width();
+        closure->height = g->get()->height();
         closure->g->_ref();
 
         std::size_t layer_idx = 0;
@@ -1557,7 +1679,7 @@ Handle<Value> VectorTile::render(const Arguments& args)
                     s << "Zero-based layer index '" << layer_idx << "' not valid, ";
                     if (layer_num > 0)
                     {
-                        s << "only '" << layers.size() << "' layers exist in map";
+                        s << "only '" << layer_num << "' layers exist in map";
                     }
                     else
                     {
@@ -1672,7 +1794,7 @@ void VectorTile::EIO_RenderTile(uv_work_t* req)
             merc.xyz(closure->d->x_,closure->d->y_,closure->d->z_,minx,miny,maxx,maxy);
         }
         mapnik::box2d<double> map_extent(minx,miny,maxx,maxy);
-        mapnik::request m_req(map_in.width(),map_in.height(),map_extent);
+        mapnik::request m_req(closure->width,closure->height,map_extent);
         m_req.set_buffer_size(closure->buffer_size);
         mapnik::projection map_proj(map_in.srs(),true);
         double scale_denom = closure->scale_denominator;

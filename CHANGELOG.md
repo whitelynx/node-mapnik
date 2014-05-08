@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.4.3
+
+ - VectorTile constructor now accepts optional 4th arg of options which respects `width` or `height`
+ - `VectorTile.query` now returns `Feature` objects with `layer` and `distance` properties
+ - New `VectorTile.fromGeoJSON` function to turn GeoJSON into a tile layer
+ - New appveyor file for continuous builds on windows
+ - Binaries updated to use Mapnik v2.3.x at 94e78f2ae4 and mapnik-packaging@45536bd3c9
+
+Notable changes in the Mapnik SDK include:
+ - Libtiff upgraded to CVS head at https://github.com/vadz/libtiff/commit/f696451cb05a8f33ec477eadcadd10fae9f58c39
+ - Libfiff now built with `--enable-chunky-strip-read`
+ - Harfbuzz updated to v0.9.28
+ - Sqlite upgraded to 3.8.4.3/3080403
+
 ## 1.4.2
 
  - Now initializing and cleaning up global libxml structures to ensure safe async map loading (#239)
@@ -11,6 +25,7 @@ Notable changes in Mapnik 2.3.x include:
  - postgis.input now links to fewer authentication libraries by only linking to libararies libpq was built against
 
 Notable changes in the Mapnik SDK include:
+ - ICU upgraded to 53.1 from 52.1
  - jpeg-turbo 1.3.1 is now used in place of libjpeg 8d (better performance likely)
  - sqlite3 upgraded to 3080401 from 3080200
  - webp upgraded to 0.4.0 from 0.3.1 (better performance likely)

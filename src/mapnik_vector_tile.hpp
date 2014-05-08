@@ -29,6 +29,7 @@ public:
     static Handle<Value> query(Arguments const& args);
     static Handle<Value> names(Arguments const& args);    
     static Handle<Value> toGeoJSON(Arguments const& args);
+    static Handle<Value> fromGeoJSON(Arguments const& args);
 #ifdef PROTOBUF_FULL
     static Handle<Value> toString(Arguments const& args);
 #endif
@@ -57,7 +58,7 @@ public:
     static void EIO_AfterIsSolid(uv_work_t* req);
     static Handle<Value> isSolidSync(Arguments const& args);
 
-    VectorTile(int z, int x, int y, unsigned w=256, unsigned h=256);
+    VectorTile(int z, int x, int y, unsigned w, unsigned h);
 
     void clear() {
         tiledata_.Clear();
