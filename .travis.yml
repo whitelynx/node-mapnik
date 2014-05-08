@@ -37,7 +37,7 @@ install:
  - npm test
 
 before_script:
- - if [[ ${CXX} == "g++" ]] && test "${COMMIT_MESSAGE#*'[publish binary]'}" != "$COMMIT_MESSAGE"; then echo yes;PUBLISH_BINARY=true; fi;
+ - if test "${COMMIT_MESSAGE#*'[publish binary]'}" != "$COMMIT_MESSAGE"; then echo yes;PUBLISH_BINARY=true; fi;
 
 script:
  - if [[ $PUBLISH_BINARY == true ]]; then node-pre-gyp publish info; rm -rf {build,lib/binding}; node-pre-gyp install; npm test; fi
