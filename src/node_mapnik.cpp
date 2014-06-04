@@ -7,7 +7,6 @@
 #include "mapnik3x_compatibility.hpp"
 
 // node-mapnik
-#include "mapnik_vector_tile.hpp"
 #include "mapnik_map.hpp"
 #include "mapnik_color.hpp"
 #include "mapnik_geometry.hpp"
@@ -98,7 +97,6 @@ static Handle<Value> clearCache(const Arguments& args)
 static Handle<Value> shutdown(const Arguments& args)
 {
     HandleScope scope;
-    google::protobuf::ShutdownProtobufLibrary();
     return scope.Close(Undefined());
 }
 
@@ -107,7 +105,6 @@ extern "C" {
     static void InitMapnik (Handle<Object> target)
     {
         HandleScope scope;
-        GOOGLE_PROTOBUF_VERIFY_VERSION;
 
         // module level functions
         NODE_SET_METHOD(target, "register_datasource", node_mapnik::register_datasource);
@@ -121,7 +118,6 @@ extern "C" {
         NODE_SET_METHOD(target, "shutdown",shutdown);
 
         // Classes
-        VectorTile::Initialize(target);
         Map::Initialize(target);
         Color::Initialize(target);
         Geometry::Initialize(target);

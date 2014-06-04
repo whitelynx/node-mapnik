@@ -92,7 +92,6 @@ Note: This will install the latest node-mapnik 1.x series, which is recommended.
 To build from source you need:
 
  - Mapnik >= v2.2.x
- - Protobuf >= 2.3.0 (protoc and libprotobuf-lite)
 
 To build with OS X Mavericks you need to ensure the bindings link to libc++. An easy way to do this is to set:
 
@@ -115,7 +114,7 @@ To require node-mapnik as a dependency of another package put in your package.js
 ## Tests
 
 To run the tests do:
-  
+
     npm test
 
 ## License

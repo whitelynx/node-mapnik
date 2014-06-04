@@ -36,11 +36,9 @@
       }
   ],
   "dependencies"  : {
-      "mapnik-vector-tile": "~0.5.0",
       "node-pre-gyp":"https://github.com/mapbox/node-pre-gyp/tarball/master"
   },
   "bundledDependencies": [
-      "mapnik-vector-tile",
       "node-pre-gyp"
   ],
   "bin"           : {
@@ -55,7 +53,6 @@
       "install": "node-pre-gyp install --fallback-to-build"
   },
   "devDependencies": {
-    "sphericalmercator": "~1.0.2",
     "mocha": "~1.15.1",
     "aws-sdk": "~2.0.0-rc.15"
   }

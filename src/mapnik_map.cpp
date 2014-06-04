@@ -7,9 +7,6 @@
 #include "mapnik_image.hpp"             // for Image, Image::constructor
 #include "mapnik_layer.hpp"             // for Layer, Layer::constructor
 #include "mapnik_palette.hpp"           // for palette_ptr, Palette, etc
-#include "vector_tile_processor.hpp"
-#include "vector_tile_backend_pbf.hpp"
-#include "mapnik_vector_tile.hpp"
 
 // node
 #include <node.h>
@@ -1198,34 +1195,6 @@ struct grid_baton_t {
       error_name() {}
 };
 
-struct vector_tile_baton_t {
-    uv_work_t request;
-    Map *m;
-    VectorTile *d;
-    unsigned tolerance;
-    unsigned path_multiplier;
-    int buffer_size;
-    double scale_factor;
-    double scale_denominator;
-    unsigned offset_x;
-    unsigned offset_y;
-    std::string image_format;
-    mapnik::scaling_method_e scaling_method;
-    bool error;
-    std::string error_name;
-    Persistent<Function> cb;
-    vector_tile_baton_t() :
-        tolerance(1),
-        path_multiplier(16),
-        scale_factor(1.0),
-        scale_denominator(0.0),
-        offset_x(0),
-        offset_y(0),
-        image_format("jpeg"),
-        scaling_method(mapnik::SCALING_NEAR),
-        error(false) {}
-};
-
 Handle<Value> Map::render(const Arguments& args)
 {
     HandleScope scope;
@@ -1437,70 +1406,6 @@ Handle<Value> Map::render(const Arguments& args)
         closure->error = false;
         closure->cb = Persistent<Function>::New(Handle<Function>::Cast(args[args.Length()-1]));
         uv_queue_work(uv_default_loop(), &closure->request, EIO_RenderGrid, (uv_after_work_cb)EIO_AfterRenderGrid);
-    } else if (VectorTile::constructor->HasInstance(obj)) {
-
-        vector_tile_baton_t *closure = new vector_tile_baton_t();
-        VectorTile * vector_tile_obj = node::ObjectWrap::Unwrap<VectorTile>(obj);
-
-        if (options->Has(String::New("image_scaling"))) {
-            Local<Value> param_val = options->Get(String::New("image_scaling"));
-            if (!param_val->IsString()) {
-                delete closure;
-                return ThrowException(Exception::TypeError(
-                                          String::New("option 'image_scaling' must be an unsigned integer")));
-            }
-            std::string image_scaling = TOSTR(param_val);
-            boost::optional<mapnik::scaling_method_e> method = mapnik::scaling_method_from_string(image_scaling);
-            if (!method) {
-                delete closure;
-                return ThrowException(Exception::TypeError(
-                                          String::New("option 'image_scaling' must be a string and a valid scaling method (e.g 'bilinear')")));
-            }
-            closure->scaling_method = *method;
-        }
-
-        if (options->Has(String::New("image_format"))) {
-            Local<Value> param_val = options->Get(String::New("image_format"));
-            if (!param_val->IsString()) {
-                delete closure;
-                return ThrowException(Exception::TypeError(
-                                          String::New("option 'image_format' must be a string")));
-            }
-            closure->image_format = TOSTR(param_val);
-        }
-
-        if (options->Has(String::New("tolerance"))) {
-            Local<Value> param_val = options->Get(String::New("tolerance"));
-            if (!param_val->IsNumber()) {
-                delete closure;
-                return ThrowException(Exception::TypeError(
-                                          String::New("option 'tolerance' must be an unsigned integer")));
-            }
-            closure->tolerance = param_val->IntegerValue();
-        }
-
-        if (options->Has(String::New("path_multiplier"))) {
-            Local<Value> param_val = options->Get(String::New("path_multiplier"));
-            if (!param_val->IsNumber()) {
-                delete closure;
-                return ThrowException(Exception::TypeError(
-                                          String::New("option 'path_multiplier' must be an unsigned integer")));
-            }
-            closure->path_multiplier = param_val->NumberValue();
-        }
-
-        closure->request.data = closure;
-        closure->m = m;
-        closure->d = vector_tile_obj;
-        closure->d->_ref();
-        closure->buffer_size = buffer_size;
-        closure->scale_factor = scale_factor;
-        closure->scale_denominator = scale_denominator;
-        closure->offset_x = offset_x;
-        closure->offset_y = offset_y;
-        closure->error = false;
-        closure->cb = Persistent<Function>::New(Handle<Function>::Cast(args[args.Length()-1]));
-        uv_queue_work(uv_default_loop(), &closure->request, EIO_RenderVectorTile, (uv_after_work_cb)EIO_AfterRenderVectorTile);
     } else {
         return ThrowException(Exception::TypeError(String::New("renderable mapnik object expected")));
     }
@@ -1508,66 +1413,6 @@ Handle<Value> Map::render(const Arguments& args)
     m->acquire();
     m->Ref();
     return Undefined();
-}
-
-void Map::EIO_RenderVectorTile(uv_work_t* req)
-{
-    vector_tile_baton_t *closure = static_cast<vector_tile_baton_t *>(req->data);
-    try
-    {
-        typedef mapnik::vector::backend_pbf backend_type;
-        typedef mapnik::vector::processor<backend_type> renderer_type;
-        backend_type backend(closure->d->get_tile_nonconst(),
-                             closure->path_multiplier);
-        mapnik::Map const& map = *closure->m->get();
-        mapnik::request m_req(map.width(),map.height(),map.get_current_extent());
-        m_req.set_buffer_size(closure->buffer_size);
-        renderer_type ren(backend,
-                          map,
-                          m_req,
-                          closure->scale_factor,
-                          closure->offset_x,
-                          closure->offset_y,
-                          closure->tolerance,
-                          closure->image_format,
-                          closure->scaling_method);
-        ren.apply(closure->scale_denominator);
-        closure->d->painted(ren.painted());
-        closure->d->cache_bytesize();
-
-    }
-    catch (std::exception const& ex)
-    {
-        closure->error = true;
-        closure->error_name = ex.what();
-    }
-}
-
-void Map::EIO_AfterRenderVectorTile(uv_work_t* req)
-{
-    HandleScope scope;
-
-    vector_tile_baton_t *closure = static_cast<vector_tile_baton_t *>(req->data);
-
-    TryCatch try_catch;
-
-    if (closure->error) {
-        Local<Value> argv[1] = { Exception::Error(String::New(closure->error_name.c_str())) };
-        closure->cb->Call(Context::GetCurrent()->Global(), 1, argv);
-    } else {
-        Local<Value> argv[2] = { Local<Value>::New(Null()), Local<Value>::New(closure->d->handle_) };
-        closure->cb->Call(Context::GetCurrent()->Global(), 2, argv);
-    }
-
-    if (try_catch.HasCaught()) {
-        node::FatalException(try_catch);
-    }
-
-    closure->m->release();
-    closure->m->Unref();
-    closure->d->_unref();
-    closure->cb.Dispose();
-    delete closure;
 }
 
 void Map::EIO_RenderGrid(uv_work_t* req)
